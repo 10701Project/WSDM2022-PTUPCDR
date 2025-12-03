@@ -18,7 +18,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from data_paths import (
-    get_raw_data_path,
+    get_trimed_data_path,
     get_cleaned_data_dir,
     get_cross_domain_dir_name,
     get_cleaned_data_filename,
@@ -111,7 +111,7 @@ def cleaning_data(source_dataset: str, target_dataset: str) -> None:
 
 def _load_reviews(dataset_name: str) -> List[Dict]:
     """
-    Load reviews from a raw review file (gzip compressed).
+    Load reviews from a trimed review file (gzip compressed).
 
     Args:
         dataset_name: Name of the dataset
@@ -119,7 +119,7 @@ def _load_reviews(dataset_name: str) -> List[Dict]:
     Returns:
         List of review dictionaries
     """
-    file_path = get_raw_data_path(dataset_name, 'review')
+    file_path = get_trimed_data_path(dataset_name, 'review')
     reviews = []
 
     with gzip.open(file_path, 'rt', encoding='utf-8') as f:

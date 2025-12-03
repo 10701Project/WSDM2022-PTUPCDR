@@ -34,6 +34,16 @@ def get_raw_data_dir() -> str:
     return os.path.join(get_project_root(), 'data', 'original')
 
 
+def get_trimed_data_dir() -> str:
+    """
+    Get the directory where trimed data is stored.
+
+    Returns:
+        Absolute path to trimed data directory
+    """
+    return os.path.join(get_project_root(), 'data', 'trimed')
+
+
 def get_cleaned_data_dir() -> str:
     """
     Get the directory where cleaned data is stored.
@@ -75,6 +85,28 @@ def get_raw_data_filename(dataset_name: str, data_type: str = 'review') -> str:
     """
     return f"raw_{data_type}_{dataset_name}.jsonl.gz"
 
+def get_trimed_data_filename(dataset_name: str, data_type: str = 'review') -> str:
+    """
+    Get the filename for trimed data following the project's naming convention.
+
+    The convention is: trimed_{data_type}_{dataset_name}.jsonl.gz
+
+    Args:
+        dataset_name: Name of the dataset (e.g., 'Magazine_Subscriptions')
+        data_type: Type of data ('review' or 'meta')
+
+    Returns:
+        Filename string (not full path)
+
+    Examples:
+        >>> get_trimed_data_filename('Magazine_Subscriptions', 'review')
+        'trimed_review_Magazine_Subscriptions.jsonl.gz'
+        >>> get_trimed_data_filename('Magazine_Subscriptions', 'meta')
+        'trimed_meta_Magazine_Subscriptions.jsonl.gz'
+    """
+    return f"trimed_{data_type}_{dataset_name}.jsonl.gz"
+
+
 def get_cleaned_data_filename(dataset_name: str, data_type: str = 'review') -> str:
     """
     Get the filename for cleaned data following the project's naming convention.
@@ -84,10 +116,10 @@ def get_cleaned_data_filename(dataset_name: str, data_type: str = 'review') -> s
     Args:
         dataset_name: Name of the dataset (e.g., 'Magazine_Subscriptions')
         data_type: Type of data ('review' or 'meta')
-    
+
     Returns:
-        Filename string (not full path) 
-    
+        Filename string (not full path)
+
     Examples:
         >>> get_cleaned_data_filename('Magazine_Subscriptions', 'review')
         'cleaned_review_Magazine_Subscriptions.jsonl.gz'
@@ -114,6 +146,26 @@ def get_raw_data_path(dataset_name: str, data_type: str = 'review') -> str:
     raw_dir = get_raw_data_dir()
     filename = get_raw_data_filename(dataset_name, data_type)
     return os.path.join(raw_dir, filename)
+
+
+def get_trimed_data_path(dataset_name: str, data_type: str = 'review') -> str:
+    """
+    Get the full path to a trimed data file.
+
+    Args:
+        dataset_name: Name of the dataset (e.g., 'Magazine_Subscriptions')
+        data_type: Type of data ('review' or 'meta')
+
+    Returns:
+        Absolute path to the trimed data file
+
+    Examples:
+        >>> get_trimed_data_path('Magazine_Subscriptions', 'review')
+        '/path/to/CDR_ensemble/data/trimed/trimed_review_Magazine_Subscriptions.jsonl.gz'
+    """
+    trimed_dir = get_trimed_data_dir()
+    filename = get_trimed_data_filename(dataset_name, data_type)
+    return os.path.join(trimed_dir, filename)
 
 def get_cross_domain_dir_name(source_dataset: str, target_dataset: str) -> str:
     """
