@@ -8,9 +8,9 @@ for cross-domain recommendation tasks.
 import gzip
 import json
 import os
+import shutil
 import sys
 from collections import Counter
-from typing import Dict, List
 
 # Add project root to path for imports
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,124 +25,217 @@ from data_paths import (
     ensure_dir_exists
 )
 
+# Batch size for processing large datasets (number of reviews per batch)
+BATCH_SIZE = 100000
+
 
 def cleaning_data(source_dataset: str, target_dataset: str) -> None:
     """
     Clean review datasets for cross-domain recommendation.
 
     This function performs the following cleaning steps:
-    1. Load review data from both source and target datasets
-    2. Keep only reviews with user_id that appears in both datasets
-    3. Keep only reviews whose user_id has at least 5 interactions in both domains
-    4. Store the processed data under original/cleaned/{dir_name}/{file_name}
+    1. Filter each dataset to keep only users with >= 5 reviews (batch processing)
+    2. Find common user_ids across both filtered datasets
+    3. Keep only reviews from common users
+    4. Store the processed data under data/cleaned/{dir_name}/{file_name}
 
     Args:
-        source_dataset: Name of the source dataset (e.g., 'Digital_Music')
-        target_dataset: Name of the target dataset (e.g., 'Magazine_Subscriptions')
+        source_dataset: Name of the source dataset (e.g., 'Books')
+        target_dataset: Name of the target dataset (e.g., 'Movies_and_TV')
 
     Examples:
-        >>> cleaning_data('Digital_Music', 'Magazine_Subscriptions')
+        >>> cleaning_data('Books', 'Movies_and_TV')
         # Cleans and saves data to:
-        # data_set/original/cleaned/Digital_Music_to_Magazine_Subscriptions/
-        #   - cleaned_review_Digital_Music.jsonl
-        #   - cleaned_review_Magazine_Subscriptions.jsonl
+        # data/cleaned/Books_to_Movies_and_TV/
+        #   - cleaned_review_Books.jsonl.gz
+        #   - cleaned_review_Movies_and_TV.jsonl.gz
     """
-    # Load review data
-    print(f"Loading review data for {source_dataset}...")
-    source_reviews = _load_reviews(source_dataset)
-    print(f"  Loaded {len(source_reviews)} source reviews")
+    temp_dir = os.path.join(get_cleaned_data_dir(), '_temp')
+    ensure_dir_exists(temp_dir)
 
-    print(f"Loading review data for {target_dataset}...")
-    target_reviews = _load_reviews(target_dataset)
-    print(f"  Loaded {len(target_reviews)} target reviews")
+    try:
+        # Step 1: Filter each dataset to keep users with >= 5 reviews
+        print("=" * 80)
+        print("STEP 1: Filtering datasets (keeping users with >= 5 reviews)")
+        print("=" * 80)
 
-    # Step 1: Find users that appear in both datasets
-    print("Finding overlapping users...")
-    source_users = set(review['user_id'] for review in source_reviews)
-    target_users = set(review['user_id'] for review in target_reviews)
-    overlapping_users = source_users & target_users
-    print(f"  Found {len(overlapping_users)} overlapping users")
+        temp_source_path = os.path.join(temp_dir, f"filtered_{source_dataset}.jsonl.gz")
+        temp_target_path = os.path.join(temp_dir, f"filtered_{target_dataset}.jsonl.gz")
 
-    # Filter to keep only overlapping users
-    source_reviews_filtered = [r for r in source_reviews if r['user_id'] in overlapping_users]
-    target_reviews_filtered = [r for r in target_reviews if r['user_id'] in overlapping_users]
-    print(f"  Source reviews after overlap filter: {len(source_reviews_filtered)}")
-    print(f"  Target reviews after overlap filter: {len(target_reviews_filtered)}")
+        source_users = _filter_by_frequency(source_dataset, temp_source_path, min_count=5)
+        target_users = _filter_by_frequency(target_dataset, temp_target_path, min_count=5)
 
-    # Step 2: Count interactions per user in both domains
-    print("Counting user interactions...")
-    source_user_counts = Counter(r['user_id'] for r in source_reviews_filtered)
-    target_user_counts = Counter(r['user_id'] for r in target_reviews_filtered)
+        # Step 2: Find common users
+        print("\n" + "=" * 80)
+        print("STEP 2: Finding common users")
+        print("=" * 80)
+        common_users = source_users & target_users
+        print(f"Found {len(common_users)} common users")
 
-    # Find users with at least 5 interactions in BOTH domains
-    qualified_users = set()
-    for user_id in overlapping_users:
-        if source_user_counts[user_id] >= 5 and target_user_counts[user_id] >= 5:
-            qualified_users.add(user_id)
+        if len(common_users) == 0:
+            print("WARNING: No common users found. Cleaning aborted.")
+            return
 
-    print(f"  Found {len(qualified_users)} users with >= 5 interactions in both domains")
+        # Step 3: Filter by common users and save final results
+        print("\n" + "=" * 80)
+        print("STEP 3: Filtering by common users and saving final results")
+        print("=" * 80)
 
-    # Filter to keep only qualified users
-    source_reviews_cleaned = [r for r in source_reviews_filtered if r['user_id'] in qualified_users]
-    target_reviews_cleaned = [r for r in target_reviews_filtered if r['user_id'] in qualified_users]
-    print(f"  Source reviews after minimum interaction filter: {len(source_reviews_cleaned)}")
-    print(f"  Target reviews after minimum interaction filter: {len(target_reviews_cleaned)}")
+        dir_name = get_cross_domain_dir_name(source_dataset, target_dataset)
+        output_dir = os.path.join(get_cleaned_data_dir(), dir_name)
+        ensure_dir_exists(output_dir)
 
-    # Step 3: Save cleaned data
-    print("Saving cleaned data...")
-    dir_name = get_cross_domain_dir_name(source_dataset, target_dataset)
-    output_dir = os.path.join(get_cleaned_data_dir(), dir_name)
-    ensure_dir_exists(output_dir)
+        # Process source dataset
+        source_filename = get_cleaned_data_filename(source_dataset, 'review')
+        source_output_path = os.path.join(output_dir, source_filename)
+        source_count = _filter_by_user_set(temp_source_path, source_output_path, common_users)
+        print(f"Saved {source_count} source reviews to: {source_output_path}")
 
-    # Save source dataset
-    source_filename = get_cleaned_data_filename(source_dataset, 'review')
-    source_output_path = os.path.join(output_dir, source_filename)
-    _save_reviews(source_reviews_cleaned, source_output_path)
-    print(f"  Saved {len(source_reviews_cleaned)} source reviews to {source_output_path}")
+        # Process target dataset
+        target_filename = get_cleaned_data_filename(target_dataset, 'review')
+        target_output_path = os.path.join(output_dir, target_filename)
+        target_count = _filter_by_user_set(temp_target_path, target_output_path, common_users)
+        print(f"Saved {target_count} target reviews to: {target_output_path}")
 
-    # Save target dataset
-    target_filename = get_cleaned_data_filename(target_dataset, 'review')
-    target_output_path = os.path.join(output_dir, target_filename)
-    _save_reviews(target_reviews_cleaned, target_output_path)
-    print(f"  Saved {len(target_reviews_cleaned)} target reviews to {target_output_path}")
+        print("\n" + "=" * 80)
+        print("CLEANING COMPLETED SUCCESSFULLY!")
+        print("=" * 80)
+        print(f"Source dataset: {source_count} reviews from {len(common_users)} users")
+        print(f"Target dataset: {target_count} reviews from {len(common_users)} users")
 
-    print("Cleaning completed successfully!")
+    finally:
+        # Clean up temporary directory
+        if os.path.exists(temp_dir):
+            print(f"\nCleaning up temporary files in: {temp_dir}")
+            shutil.rmtree(temp_dir)
+            print("Temporary files removed.")
 
 
-def _load_reviews(dataset_name: str) -> List[Dict]:
+def _filter_by_frequency(dataset_name: str, output_path: str, min_count: int = 5) -> set:
     """
-    Load reviews from a trimed review file (gzip compressed).
+    Filter dataset to keep only users with >= min_count reviews.
+    Processes data in batches to handle large files.
 
     Args:
         dataset_name: Name of the dataset
+        output_path: Path to save filtered reviews
+        min_count: Minimum number of reviews per user
 
     Returns:
-        List of review dictionaries
+        Set of user_ids that have >= min_count reviews
     """
-    file_path = get_trimed_data_path(dataset_name, 'review')
-    reviews = []
+    input_path = get_trimed_data_path(dataset_name, 'review')
+    print(f"\nProcessing {dataset_name}...")
+    print(f"  Input: {input_path}")
 
-    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+    # Pass 1: Count user frequencies in batches
+    print("  Pass 1: Counting user frequencies...")
+    user_counts = Counter()
+    total_reviews = 0
+
+    with gzip.open(input_path, 'rt', encoding='utf-8') as f:
+        batch = []
         for line in f:
             line = line.strip()
             if line:
                 review = json.loads(line)
-                reviews.append(review)
+                batch.append(review)
+                total_reviews += 1
 
-    return reviews
+                if len(batch) >= BATCH_SIZE:
+                    # Process batch
+                    for r in batch:
+                        user_counts[r['user_id']] += 1
+                    batch = []
+                    print(f"    Processed {total_reviews:,} reviews...", end='\r')
+
+        # Process remaining reviews
+        for r in batch:
+            user_counts[r['user_id']] += 1
+
+    print(f"    Processed {total_reviews:,} reviews total")
+
+    # Find qualified users
+    qualified_users = {user_id for user_id, count in user_counts.items() if count >= min_count}
+    print(f"  Found {len(qualified_users):,} users with >= {min_count} reviews")
+
+    # Pass 2: Filter and save reviews from qualified users
+    print("  Pass 2: Filtering and saving qualified reviews...")
+    saved_count = 0
+
+    with gzip.open(input_path, 'rt', encoding='utf-8') as f_in, \
+         gzip.open(output_path, 'wt', encoding='utf-8') as f_out:
+
+        batch = []
+        for line in f_in:
+            line = line.strip()
+            if line:
+                review = json.loads(line)
+                if review['user_id'] in qualified_users:
+                    batch.append(review)
+
+                if len(batch) >= BATCH_SIZE:
+                    # Write batch
+                    for r in batch:
+                        f_out.write(json.dumps(r) + '\n')
+                        saved_count += 1
+                    batch = []
+                    print(f"    Saved {saved_count:,} reviews...", end='\r')
+
+        # Write remaining reviews
+        for r in batch:
+            f_out.write(json.dumps(r) + '\n')
+            saved_count += 1
+
+    print(f"    Saved {saved_count:,} reviews total")
+    print(f"  Output: {output_path}")
+
+    return qualified_users
 
 
-def _save_reviews(reviews: List[Dict], output_path: str) -> None:
+def _filter_by_user_set(input_path: str, output_path: str, user_set: set) -> int:
     """
-    Save reviews to a gzip compressed JSONL file.
+    Filter reviews to keep only those from users in the given set.
+    Processes data in batches.
 
     Args:
-        reviews: List of review dictionaries
-        output_path: Path to save the reviews
+        input_path: Path to input reviews file
+        output_path: Path to save filtered reviews
+        user_set: Set of user_ids to keep
+
+    Returns:
+        Number of reviews saved
     """
-    with gzip.open(output_path, 'wt', encoding='utf-8') as f:
-        for review in reviews:
-            f.write(json.dumps(review) + '\n')
+    print(f"\n  Processing: {os.path.basename(input_path)}")
+    saved_count = 0
+
+    with gzip.open(input_path, 'rt', encoding='utf-8') as f_in, \
+         gzip.open(output_path, 'wt', encoding='utf-8') as f_out:
+
+        batch = []
+        for line in f_in:
+            line = line.strip()
+            if line:
+                review = json.loads(line)
+                if review['user_id'] in user_set:
+                    batch.append(review)
+
+                if len(batch) >= BATCH_SIZE:
+                    # Write batch
+                    for r in batch:
+                        f_out.write(json.dumps(r) + '\n')
+                        saved_count += 1
+                    batch = []
+                    print(f"    Saved {saved_count:,} reviews...", end='\r')
+
+        # Write remaining reviews
+        for r in batch:
+            f_out.write(json.dumps(r) + '\n')
+            saved_count += 1
+
+    print(f"    Saved {saved_count:,} reviews total")
+
+    return saved_count
 
 
 if __name__ == "__main__":
