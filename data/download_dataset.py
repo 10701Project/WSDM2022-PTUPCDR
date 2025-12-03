@@ -47,7 +47,7 @@ def download_raw_reviews(category, output_dir=None):
     if output_dir:
         # Use centralized naming convention
         filename = get_raw_data_filename(category, 'review')
-        output_path = os.path.join(output_dir, filename + '.gz')
+        output_path = os.path.join(output_dir, filename)
         print(f"Downloading from: {url}")
         try:
             # Download the gzipped file

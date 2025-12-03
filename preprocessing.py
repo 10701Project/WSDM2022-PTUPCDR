@@ -4,35 +4,52 @@ import json
 import tqdm
 import random
 import os
+from data.data_paths import get_cleaned_data_dir, get_cleaned_data_filename
 
 class DataPreprocessingMid():
     def __init__(self,
                  root,
-                 dealing):
+                 cross_domain_dir_name,
+                 dataset_name):
         self.root = root
-        self.dealing = dealing
+        self.cross_domain_dir_name = cross_domain_dir_name
+        self.dataset_name = dataset_name
+
+        # Check if the cross-domain directory exists using data_paths methods
+        self.cleaned_dir = os.path.join(get_cleaned_data_dir(), self.cross_domain_dir_name)
+        if not os.path.exists(self.cleaned_dir):
+            raise FileNotFoundError(f"Cross-domain directory does not exist: {self.cleaned_dir}")
+
+        # Construct the input file path using data_paths methods
+        filename = get_cleaned_data_filename(self.dataset_name, data_type='review')
+        self.input_file = os.path.join(self.cleaned_dir, filename)
+        if not os.path.exists(self.input_file):
+            raise FileNotFoundError(f"Dataset file does not exist: {self.input_file}")
 
     def main(self):
-        print('Parsing ' + self.dealing + ' Mid...')
+        print(f'Parsing {self.dataset_name} from {self.cross_domain_dir_name} Mid...')
         re = []
-        with gzip.open(self.root + 'raw/reviews_' + self.dealing + '_5.json.gz', 'rb') as f:
+        with gzip.open(self.input_file, 'rb') as f:
             for line in tqdm.tqdm(f, smoothing=0, mininterval=1.0):
                 line = json.loads(line)
-                re.append([line['reviewerID'], line['asin'], line['overall']])
+                re.append([line['user_id'], line['parent_asin'], line['rating']])
         re = pd.DataFrame(re, columns=['uid', 'iid', 'y'])
-        print(self.dealing + ' Mid Done.')
-        re.to_csv(self.root + 'mid/' + self.dealing + '.csv', index=0)
+        print(f'{self.dataset_name} Mid Done.')
+
+        # Save to mid directory (same structure as before for compatibility)
+        output_file = self.root + 'mid/' + self.dataset_name + '.csv'
+        re.to_csv(output_file, index=0)
+        print(f'Saved to {output_file}')
         return re
 
 class DataPreprocessingReady():
     def __init__(self,
                  root,
                  src_tgt_pairs,
-                 task,
                  ratio):
         self.root = root
-        self.src = src_tgt_pairs[task]['src']
-        self.tgt = src_tgt_pairs[task]['tgt']
+        self.src = src_tgt_pairs['src']
+        self.tgt = src_tgt_pairs['tgt']
         self.ratio = ratio
 
     def read_mid(self, field):
@@ -67,7 +84,7 @@ class DataPreprocessingReady():
         src_users = set(src.uid.unique())
         tgt_users = set(tgt.uid.unique())
         co_users = src_users & tgt_users
-        test_users = set(random.sample(co_users, round(self.ratio[1] * len(co_users))))
+        test_users = set(random.sample(list(co_users), round(self.ratio[1] * len(co_users))))
         train_src = src
         train_tgt = tgt[tgt['uid'].isin(tgt_users - test_users)]
         test = tgt[tgt['uid'].isin(test_users)]
